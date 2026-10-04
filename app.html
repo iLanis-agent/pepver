@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PepVer app - sort and match Python versions</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#0c1620;color:#e6f1fa;line-height:1.5}
+.wrap{max-width:820px;margin:0 auto;padding:28px 16px 50px}
+h1{font-size:28px}h1 span{color:#38bdf8}.sub{color:#8fb0c9;margin:6px 0 14px}
+textarea,input[type=text]{width:100%;background:#13243300;background:#132433;color:#e6f1fa;border:1px solid #2a4a66;border-radius:10px;padding:11px;font:15px ui-monospace,Menlo,Consolas,monospace}
+textarea{height:150px}label{display:block;font-size:13px;color:#8fb0c9;margin:12px 0 4px}
+.pre button{background:#14293a;color:#bae6fd;border:1px solid #2a4a66;border-radius:20px;padding:6px 12px;margin:0 6px 6px 0;cursor:pointer;font-size:13px}
+table{width:100%;border-collapse:collapse;margin-top:14px;font-size:14px}th,td{text-align:left;padding:8px;border-bottom:1px solid #1d3448;vertical-align:top}th{color:#8fb0c9;font-weight:600}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;color:#bae6fd}.err{color:#fca5a5}.warn{color:#fcd34d}.ok{color:#86efac}.dim{color:#6f90a9;font-size:12px}
+.card{margin-top:16px;padding:12px 14px;border-radius:12px;background:#132433}.note{color:#6f90a9;font-size:13px;margin-top:18px}a{color:#38bdf8}
+</style></head><body><div class="wrap">
+<h1>Pep<span>Ver</span></h1>
+<div class="sub">Python (PEP 440) versions: sorted, normalized, and checked against a requirement like <code>&gt;=1.0,&lt;2</code>.</div>
+<div class="pre" id="pre"></div>
+<label for="vs">Versions, one per line</label><textarea id="vs" spellcheck="false"></textarea>
+<label for="sp">Requirement (comma separated clauses, optional)</label><input type="text" id="sp" spellcheck="false">
+<label><input type="checkbox" id="pr"> Include pre-releases (pip skips them unless a clause names one)</label>
+<div id="msg"></div>
+<table><thead><tr><th>Sorted</th><th>Normalized</th><th>Kind</th><th>Requirement</th></tr></thead><tbody id="tb"></tbody></table>
+<div class="note">Rules from PEP 440: <code>1.0.dev1 &lt; 1.0a1 &lt; 1.0rc1 &lt; 1.0 &lt; 1.0.post1</code>, trailing zeros are ignored (<code>1.0 == 1.0.0</code>), <code>&gt;1.7</code> does not match <code>1.7.0.post1</code>, <code>&lt;1.7</code> does not match <code>1.7rc1</code>, local labels (<code>+abc</code>) are ignored by == unless named. The pre-release default follows how pip and the packaging library behave, not a rule in the PEP's text.</div>
+<p class="note"><a href="index.html">Back</a></p>
+</div>
+<script>
+(function (root) {
+  'use strict';
+  // PEP 440 public/local version with the normalizations from the "Normalization" section.
+  var RE = new RegExp('^v?(?:(?:([0-9]+)!)?([0-9]+(?:\\.[0-9]+)*)([-_.]?(alpha|a|beta|b|preview|pre|c|rc)[-_.]?([0-9]+)?)?((?:-([0-9]+))|(?:[-_.]?(post|rev|r)[-_.]?([0-9]+)?))?([-_.]?(dev)[-_.]?([0-9]+)?)?)(?:\\+([a-z0-9]+(?:[-_.][a-z0-9]+)*))?$', 'i');
+  var PRE = { alpha: 'a', a: 'a', beta: 'b', b: 'b', c: 'rc', pre: 'rc', preview: 'rc', rc: 'rc' };
+  function parse(input) {
+    var s = String(input).replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, ''), m = RE.exec(s);
+    if (!m) return null;
+    var v = { epoch: m[1] ? parseInt(m[1], 10) : 0, epochExplicit: !!m[1], release: m[2].split('.').map(function (x) { return parseInt(x, 10); }), pre: null, post: null, dev: null, local: null };
+    if (m[3]) v.pre = [PRE[m[4].toLowerCase()], m[5] ? parseInt(m[5], 10) : 0];
+    if (m[6]) v.post = m[7] !== undefined ? parseInt(m[7], 10) : (m[9] ? parseInt(m[9], 10) : 0);
+    if (m[10]) v.dev = m[12] ? parseInt(m[12], 10) : 0;
+    if (m[13]) v.local = m[13].toLowerCase().split(/[-_.]/).map(function (x) { return /^[0-9]+$/.test(x) ? parseInt(x, 10) : x; });
+    return v;
+  }
+  function pub(v) {
+    var s = (v.epoch ? v.epoch + '!' : '') + v.release.join('.');
+    if (v.pre) s += v.pre[0] + v.pre[1]; if (v.post !== null) s += '.post' + v.post; if (v.dev !== null) s += '.dev' + v.dev; return s;
+  }
+  function str(v) { return pub(v) + (v.local ? '+' + v.local.join('.') : ''); }
+  function stripZeros(r) { var a = r.slice(); while (a.length > 1 && a[a.length - 1] === 0) a.pop(); return a; }
+  function cmpArr(a, b) { var n = Math.max(a.length, b.length); for (var i = 0; i < n; i++) { var x = a[i] === undefined ? -Infinity : a[i], y = b[i] === undefined ? -Infinity : b[i]; if (x !== y) return x < y ? -1 : 1; } return 0; }
+  function localKey(l) { return l === null ? null : l.map(function (x) { return typeof x === 'number' ? [1, x, ''] : [0, 0, x]; }); }
+  function cmpLocal(a, b) {
+    if (a === null && b === null) return 0; if (a === null) return -1; if (b === null) return 1;
+    var n = Math.max(a.length, b.length);
+    for (var i = 0; i < n; i++) { if (a[i] === undefined) return -1; if (b[i] === undefined) return 1; var x = typeof a[i] === 'number', y = typeof b[i] === 'number';
+      if (x !== y) return x ? 1 : -1; if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1; }
+    return 0;
+  }
+  // Ordering: epoch, release (trailing zeros ignored), then a dev-only release sorts before pre-releases, pre < final, post after, dev before its non-dev, local last.
+  function key(v) {
+    var pre = v.pre ? [0, v.pre[0] === 'a' ? 0 : v.pre[0] === 'b' ? 1 : 2, v.pre[1]] : (v.post === null && v.dev !== null ? [-1, 0, 0] : [1, 0, 0]);
+    return { epoch: v.epoch, rel: stripZeros(v.release), pre: pre, post: v.post === null ? -1 : v.post, dev: v.dev === null ? Infinity : v.dev, local: v.local };
+  }
+  function cmp(a, b) {
+    var x = key(a), y = key(b); if (x.epoch !== y.epoch) return x.epoch < y.epoch ? -1 : 1;
+    var c = cmpArr(x.rel, y.rel); if (c) return c; c = cmpArr(x.pre, y.pre); if (c) return c;
+    if (x.post !== y.post) return x.post < y.post ? -1 : 1; if (x.dev !== y.dev) return x.dev < y.dev ? -1 : 1; return cmpLocal(x.local, y.local);
+  }
+  function isPre(v) { return v.pre !== null || v.dev !== null; }
+  function base(v) { return { epoch: v.epoch, release: v.release, pre: null, post: null, dev: null, local: null }; }
+  function withoutLocal(v) { var c = Object.assign({}, v); c.local = null; return c; }
+  // Specifier clause: operator + version, with a trailing .* allowed for == and !=
+  function parseSpec(text) {
+    var m = /^\s*(===|==|!=|~=|<=|>=|<|>)\s*(\S.*?)\s*$/.exec(text); if (!m) return { error: 'Expected an operator (==, !=, ~=, <=, >=, <, >, ===) followed by a version.' };
+    var op = m[1], vs = m[2];
+    if (op === '===') return { op: op, raw: vs };
+    var wild = false; if (/\.\*$/.test(vs)) { if (op !== '==' && op !== '!=') return { error: 'A trailing .* is only allowed with == and !=.' }; wild = true; vs = vs.slice(0, -2); }
+    var v = parse(vs); if (!v) return { error: '"' + vs + '" is not a valid PEP 440 version.' };
+    if (wild && (v.dev !== null || v.local)) return { error: 'A prefix match cannot contain a development or local segment.' };
+    if (wild && (v.pre || v.post !== null)) return { error: 'The packaging library only accepts .* after a plain release number (such as 1.1.*), so this clause is rejected there.' };
+    if (op === '~=' && v.release.length < 2) return { error: '~= needs at least two release segments, so ~=1 is invalid.' };
+    if (op !== '==' && op !== '!=' && op !== '===' && v.local) return { error: 'Local versions are not allowed with ' + op + '.' };
+    return { op: op, v: v, wild: wild };
+  }
+  function prefixMatch(c, spec) {
+    if (c.epoch !== spec.epoch) return false; var n = spec.release.length, r = c.release.slice(0, n); while (r.length < n) r.push(0);
+    for (var i = 0; i < n; i++) if (r[i] !== spec.release[i]) return false;
+    if (spec.pre || spec.post !== null) { /* prefix with suffix: compare those too */ if (JSON.stringify(spec.pre) !== JSON.stringify(c.pre)) return false; if (spec.post !== null && spec.post !== c.post) return false; }
+    return true;
+  }
+  // matches(spec, candidate): the PEP's rules, with local labels ignored unless the spec names one.
+  function matches(spec, c, opts) {
+    var res;
+    if (spec.op === '===') return str(c) === spec.raw.toLowerCase();
+    var s = spec.v;
+    if (spec.op === '==' || spec.op === '!=') {
+      if (spec.wild) res = prefixMatch(c, s);
+      else if (s.local) res = cmp(c, s) === 0; else res = cmp(withoutLocal(c), s) === 0;
+      if (spec.op === '!=') res = !res; return res;
+    }
+    if (spec.op === '>=') return cmp(withoutLocal(c), s) >= 0;
+    if (spec.op === '<=') return cmp(withoutLocal(c), s) <= 0;
+    if (spec.op === '<') { if (cmp(c, s) >= 0) return false; if (!isPre(s) && isPre(c) && cmp(base(c), base(s)) === 0) return false; return true; }
+    if (spec.op === '>') { if (cmp(c, s) <= 0) return false; if (s.post === null && c.post !== null && cmp(base(c), base(s)) === 0) return false; if (c.local !== null && cmp(base(c), base(s)) === 0) return false; return true; }
+    if (spec.op === '~=') { var prefix = { epoch: s.epoch, release: s.release.slice(0, -1), pre: null, post: null, dev: null, local: null }; return cmp(withoutLocal(c), s) >= 0 && prefixMatch(c, prefix); }
+    return false;
+  }
+  var api = { parse: parse, str: str, pub: pub, cmp: cmp, isPre: isPre, parseSpec: parseSpec, matches: matches };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.PepVer = api;
+})(typeof window !== 'undefined' ? window : this);
+
+var PRE=[['Ordering traps','1.0\n1.0.0\n1.0rc1\n1.0a1\n1.0.dev1\n1.0.post1\n1.0+local\n1.0.1\n1!0.5\n2014.04\nv1.0b2','' ],['>1.7 and post','1.7\n1.7.0.post1\n1.7.1\n1.7.post2\n1.8','>1.7'],['~= compatible','2.1\n2.2\n2.9.1\n3.0\n3.0.dev1','~=2.2'],['Spellings','1.1RC1\n1.1-a1\n1.1alpha2\n1.0-1\n1.2.post\n1.0+ubuntu-1\n1.2.DEV','' ],['Invalid','1.0.final\n1..0\n1.0-beta-x\nlatest\n1.0+','' ]];
+function esc(s){return String(s).replace(/[&<>]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;'}[c]})}
+function kind(v){var k=[];if(v.dev!==null&&v.pre===null&&v.post===null)k.push('dev release');else if(v.dev!==null)k.push('dev of '+(v.post!==null?'post':'pre')+'-release');else if(v.pre)k.push('pre-release');else if(v.post!==null)k.push('post-release');else k.push('final');if(v.epoch)k.push('epoch '+v.epoch);if(v.local)k.push('local');return k.join(', ')}
+function run(){
+ var lines=document.getElementById('vs').value.split('\n').map(function(l){return l}).filter(function(l){return l.trim()}),spT=document.getElementById('sp').value.trim(),inc=document.getElementById('pr').checked,msg='';
+ var specs=[];if(spT){var parts=spT.split(',');for(var i=0;i<parts.length;i++){var p=PepVer.parseSpec(parts[i]);if(p.error){document.getElementById('msg').innerHTML='<div class="card err">Clause "'+esc(parts[i].trim())+'": '+esc(p.error)+'</div>';specs=null;break}specs.push({t:parts[i].trim(),s:p})}}
+ if(specs)document.getElementById('msg').innerHTML='';
+ var ok=[],bad=[];lines.forEach(function(l){var v=PepVer.parse(l);if(v)ok.push({raw:l.trim(),v:v});else bad.push(l.trim())});
+ ok.sort(function(a,b){return PepVer.cmp(a.v,b.v)});
+ var specPre=specs&&specs.some(function(c){return c.s.v&&PepVer.isPre(c.s.v)});
+ var h=ok.map(function(x,i){var n=PepVer.str(x.v),same=i>0&&PepVer.cmp(ok[i-1].v,x.v)===0,r='';
+  if(specs&&specs.length){var fail=null;specs.forEach(function(c){if(!fail&&!PepVer.matches(c.s,x.v))fail=c.t});
+   if(fail)r='<span class="err">no</span> <span class="dim">fails '+esc(fail)+'</span>';else if(PepVer.isPre(x.v)&&!inc&&!specPre)r='<span class="warn">skipped</span> <span class="dim">pre-releases are excluded by default</span>';else r='<span class="ok">yes</span>'}
+  else r='<span class="dim">-</span>';
+  return '<tr><td><code>'+esc(x.raw)+'</code>'+(same?' <span class="dim">equal to the line above</span>':'')+'</td><td><code>'+esc(n)+'</code>'+(n!==x.raw.replace(/^\s+|\s+$/g,'')?' <span class="dim">normalized</span>':'')+'</td><td>'+esc(kind(x.v))+'</td><td>'+r+'</td></tr>'}).join('');
+ bad.forEach(function(b){h+='<tr><td><code>'+esc(b)+'</code></td><td colspan="3"><span class="err">Not a valid PEP 440 version.</span></td></tr>'});
+ document.getElementById('tb').innerHTML=h||'<tr><td colspan="4" class="dim">Add versions above.</td></tr>';
+}
+var pe=document.getElementById('pre');PRE.forEach(function(x){var b=document.createElement('button');b.textContent=x[0];b.onclick=function(){document.getElementById('vs').value=x[1];document.getElementById('sp').value=x[2];run()};pe.appendChild(b)});
+['vs','sp','pr'].forEach(function(i){document.getElementById(i).addEventListener('input',run);document.getElementById(i).addEventListener('change',run)});
+document.getElementById('vs').value=PRE[0][1];run();
+</script></body></html>
