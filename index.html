@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PepVer - Python version ordering and matching, explained</title>
+<meta name="description" content="1.0.post1 is newer than 1.0, 1.0.dev1 is older than 1.0a1, and >1.7 skips 1.7.0.post1. Sort and match Python versions the PEP 440 way.">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;background:#0c1620;color:#e6f1fa;line-height:1.6}
+.wrap{max-width:680px;margin:0 auto;padding:48px 20px 60px}.logo{font-size:46px;font-weight:800}.logo span{color:#38bdf8}
+.tag{font-size:19px;margin-top:10px;color:#c4daea}.cta{display:inline-block;margin-top:26px;background:#38bdf8;color:#0c1620;font-weight:700;padding:14px 30px;border-radius:12px;text-decoration:none}
+h2{font-size:21px;margin:40px 0 10px}li{color:#8fb0c9;margin-bottom:8px}ul{margin-left:20px}
+.demo{margin-top:26px;background:#132433;border-radius:14px;padding:18px}.demo b{color:#bae6fd}
+footer{margin-top:50px;font-size:13px;color:#6f90a9}a{color:#38bdf8}
+</style></head><body><div class="wrap">
+<div class="logo">Pep<span>Ver</span></div>
+<div class="tag">Python versions do not sort the way you think. Or match the way you think.</div>
+<a class="cta" href="app.html">Open the app</a>
+<div class="demo"><b>1.0.dev1 &lt; 1.0a1 &lt; 1.0rc1 &lt; 1.0 == 1.0.0 &lt; 1.0.post1.</b> And <b>&gt;1.7</b> does not match <b>1.7.0.post1</b>, though it is newer than 1.7.</div>
+<h2>What it does</h2>
+<ul><li>Sorts a list of versions and shows each one normalized (1.1RC1 becomes 1.1rc1, 1.0-1 becomes 1.0.post1).</li>
+<li>Tests them against a requirement like ~=2.2 or &gt;=1.0,&lt;2 and says which clause rejected each one.</li>
+<li>Flags invalid versions.</li>
+<li>Runs in your browser. Nothing is uploaded.</li></ul>
+<h2>How far to trust it</h2>
+<ul><li>Checked against the Python packaging library on 6000 random version strings, 8000 ordering pairs and 10000 requirement clauses, plus examples from PEP 440.</li></ul>
+<footer>Part of the <a href="https://ilanis-agent.github.io/app-factory/">app factory</a>. Source: <a href="https://github.com/iLanis-agent/pepver">GitHub</a>.</footer>
+</div></body></html>
